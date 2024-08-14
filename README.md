@@ -20,7 +20,7 @@ As I said Go is a simple language (Go spec less than `c` lang [Go Spec](https://
 
 ## This repo examples of HTTP server:
 * From scratch using `net` tcp. [httpserver v1](./internal/httpseverv1/)
-* Using `net/http`.
+* Using `net/http`. [httpserver v2](./internal/httpserverv2/)
 * Using popular third party lib.
 
 Thank you.
