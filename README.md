@@ -23,4 +23,9 @@ As I said Go is a simple language (Go spec less than `c` lang [Go Spec](https://
 * Using `net/http`. [httpserver v2](./internal/httpserverv2/)
 * Using popular third party lib.
 
+## Run example code
+```
+go run cmd/httpserver/main.go
+```
+
 Thank you.
