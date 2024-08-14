@@ -19,7 +19,7 @@ As I said Go is a simple language (Go spec less than `c` lang [Go Spec](https://
 * [Effective Go](https://go.dev/doc/effective_go) code style.
 
 ## This repo examples of HTTP server:
-* From scratch using `net` tcp.
+* From scratch using `net` tcp. [httpserver v1](./internal/httpseverv1/)
 * Using `net/http`.
 * Using popular third party lib.
 
