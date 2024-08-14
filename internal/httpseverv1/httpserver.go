@@ -1,7 +1,9 @@
 package httpserverv1
 
 import (
+	"bufio"
 	"bytes"
+	"io"
 	"log/slog"
 	"net"
 	"time"
@@ -13,9 +15,9 @@ type Config struct {
 	Addr string
 }
 
-// HttpServer implements concurrent simple Http1.1 Server using stdlib/net package.
-// Just bacic functionality.
-// Support only /ping request for other return bad request.
+// HttpServer implements concurrent simple HTTP 1.1 Server using stdlib/net package.
+// Just basic functionality.
+// Support only /ping request for other return BAD REQUEST.
 type HttpServer struct {
 	config Config
 
@@ -49,11 +51,11 @@ func (s *HttpServer) Start() error {
 			s.logger.Error(LogMsg("accept connect"), uerr.Error(err))
 			return err
 		}
-		go handleConnection(s.logger, conn)
+		go handleConnection(s.logger, conn, 1)
 	}
 }
 
-func handleConnection(logger *slog.Logger, conn net.Conn) {
+func handleConnection(logger *slog.Logger, conn net.Conn, mode int) {
 	defer conn.Close()
 
 	// set conn read timeout
@@ -61,7 +63,16 @@ func handleConnection(logger *slog.Logger, conn net.Conn) {
 		logger.Error(LogMsg("set conn read deadline"), uerr.Error(err))
 		return
 	}
-	httpMessage, err := readHttpMessageLowLevel(logger, conn)
+	var httpMessage HttpMessage
+	var err error
+	switch mode {
+	case 0:
+		httpMessage, err = readHttpMessageLowLevel(logger, conn)
+	case 1:
+		httpMessage, err = readHttpMessage(logger, conn)
+	default:
+		httpMessage, err = readHttpMessage(logger, conn)
+	}
 	if err != nil {
 		logger.Error(LogMsg("read http message"), uerr.Error(err))
 		return
@@ -75,38 +86,70 @@ func handleConnection(logger *slog.Logger, conn net.Conn) {
 		writeErr = errorResponse(conn)
 	}
 	if writeErr != nil {
-		logger.Error(LogMsg("response write"), uerr.Error(writeErr))
+		logger.Error(LogMsg("write response"), uerr.Error(writeErr))
 	}
 }
 
-func readHttpMessageLowLevel(logger *slog.Logger, conn net.Conn) (HttpMessage, error) {
+// uses bufio for read bytes
+func readHttpMessage(logger *slog.Logger, reader io.Reader) (HttpMessage, error) {
+
+	httpMessage := HttpMessage{}
+
+	// read http header
+
+	// limit http message size to 2048 bytes
+	bufSize := 2048
+	// buffered reader
+	bufReader := bufio.NewReaderSize(reader, bufSize)
+
+	header, err := httpMessageHeaderDecoder(bufReader)
+	if err != nil {
+		logger.Error(LogMsg("decode http header"), uerr.Error(err))
+		return httpMessage, err
+	}
+	httpMessage.HttpHeader = header
+
+	// read payload
+	if header.ContentLen > 0 {
+
+		payload, err := bufReader.Peek(header.ContentLen)
+		if err != nil {
+			logger.Error(LogMsg("read paylaod"), uerr.Error(err))
+			return httpMessage, err
+		}
+		httpMessage.Payload = payload
+	}
+
+	return httpMessage, nil
+}
+
+// uses low level byte read operations
+func readHttpMessageLowLevel(logger *slog.Logger, reader io.Reader) (HttpMessage, error) {
 
 	httpMessage := HttpMessage{}
 
 	// read http header
 	// http header end with "\r\n\r\n"
-	// will use low lever read byte operatios
-	// true way use [bufio] stdlib package
 	headerEndSep := []byte("\r\n\r\n")
 
-	// define message read buffer slice of bytes
-	// consider that http message not bigger than 2048 bytes
-	buf := make([]byte, 2048)
+	// limit http message size to 2048 bytes
+	bufSize := 2048
+	buf := make([]byte, bufSize)
 
 	// read header
 	readEndIdx := 0
 	headerEndIdx := 0
 	for {
-		n, err := conn.Read(buf[readEndIdx:])
+		n, err := reader.Read(buf[readEndIdx:])
 		if err != nil {
 			logger.Error(LogMsg("read http header"), uerr.Error(err))
 			return httpMessage, err
 		}
-		if len(buf[readEndIdx:]) == n {
+		readEndIdx = readEndIdx + n
+		if readEndIdx == bufSize {
 			logger.Error(LogMsg("read buffer overflow"), uerr.Error(err))
 			return httpMessage, err
 		}
-		readEndIdx = readEndIdx + n
 		readBytes := buf[:readEndIdx]
 
 		// check that header was read
@@ -120,7 +163,7 @@ func readHttpMessageLowLevel(logger *slog.Logger, conn net.Conn) (HttpMessage, e
 
 	// header
 	headerBytes := buf[:headerEndIdx]
-	header, err := httpMessageHeaderDecoder(headerBytes)
+	header, err := httpMessageHeaderDecoderLowLevel(headerBytes)
 	if err != nil {
 		logger.Error(LogMsg("decode http header"), uerr.Error(err))
 		return httpMessage, err
@@ -136,16 +179,17 @@ func readHttpMessageLowLevel(logger *slog.Logger, conn net.Conn) (HttpMessage, e
 				break
 			}
 
-			n, err := conn.Read(buf[readEndIdx:])
+			n, err := reader.Read(buf[readEndIdx:])
 			if err != nil {
 				logger.Error(LogMsg("read http payload"), uerr.Error(err))
 				return httpMessage, err
 			}
-			if len(buf[readEndIdx:]) == n {
+			readEndIdx = readEndIdx + n
+			if readEndIdx == bufSize {
 				logger.Error(LogMsg("read payload, buffer overflow"), uerr.Error(err))
 				return httpMessage, err
 			}
-			readEndIdx = readEndIdx + n
+
 		}
 
 		httpMessage.Payload = buf[beginPayloadIdx:endPayloadIdx]
@@ -170,9 +214,10 @@ pong`
 
 func errorResponse(conn net.Conn) error {
 	pingHttpResp := `HTTP/1.1 400 Bad Request
-Content-Length: 0
+Content-Length: 15
+Content-Type: text/plain; charset=utf-8
 
-`
+400 Bad Request`
 
 	_, err := conn.Write([]byte(pingHttpResp))
 	if err != nil {
