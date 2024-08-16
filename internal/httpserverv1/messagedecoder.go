@@ -70,11 +70,13 @@ func httpMessageHeaderDecoderLowLevel(headerBytes []byte) (HttpHeader, error) {
 
 	header := HttpHeader{}
 
+	// split returns slices pointing to same underlying array
 	lines := bytes.Split(headerBytes, []byte{'\n'})
 	if len(lines) < 1 {
 		return header, errors.New("header decoder low level: header should has at least one line")
 	}
 
+	// decode first line of message
 	requestLine := lines[0]
 	requestLineSegments := bytes.Split(requestLine, []byte{' '})
 	if len(requestLineSegments) < 3 {
@@ -83,7 +85,7 @@ func httpMessageHeaderDecoderLowLevel(headerBytes []byte) (HttpHeader, error) {
 	header.Method = string(requestLineSegments[0])
 	header.Path = string(requestLineSegments[1])
 
-	// handle headers fields
+	// handle header fields
 	for _, line := range lines[1:] {
 		sepIdx := bytes.Index(line, []byte{':'})
 		if sepIdx == -1 {

@@ -58,13 +58,19 @@ func (s *HttpServer) Start() error {
 func handleConnection(logger *slog.Logger, conn net.Conn, mode int) {
 	defer conn.Close()
 
-	// set conn read timeout
+	// set conn read timeout (otherwise you can locked forever on read operation,
+	// tcp do not guaranty connection liveness)
 	if err := conn.SetReadDeadline(time.Now().Add(time.Second * 30)); err != nil {
 		logger.Error(LogMsg("set conn read deadline"), uerr.Error(err))
 		return
 	}
+
+	// read http message
 	var httpMessage HttpMessage
 	var err error
+	// implemented two different methods to read http message from tcp stream
+	// one use low level operations with bytes
+	// second one use buffer reader
 	switch mode {
 	case 0:
 		httpMessage, err = readHttpMessageLowLevel(logger, conn)
@@ -78,6 +84,7 @@ func handleConnection(logger *slog.Logger, conn net.Conn, mode int) {
 		return
 	}
 
+	// send proper response
 	var writeErr error
 	switch httpMessage.Path {
 	case "/ping":
@@ -112,12 +119,13 @@ func readHttpMessage(logger *slog.Logger, reader io.Reader) (HttpMessage, error)
 	// read payload
 	if header.ContentLen > 0 {
 
-		payload, err := bufReader.Peek(header.ContentLen)
+		// allocate new slice for payload to give dealloate buffer
+		httpMessage.Payload = make([]byte, header.ContentLen)
+		_, err := io.ReadFull(bufReader, httpMessage.Payload)
 		if err != nil {
 			logger.Error(LogMsg("read paylaod"), uerr.Error(err))
 			return httpMessage, err
 		}
-		httpMessage.Payload = payload
 	}
 
 	return httpMessage, nil
@@ -161,7 +169,7 @@ func readHttpMessageLowLevel(logger *slog.Logger, reader io.Reader) (HttpMessage
 	}
 	beginPayloadIdx := headerEndIdx + len(headerEndSep)
 
-	// header
+	// header decoding
 	headerBytes := buf[:headerEndIdx]
 	header, err := httpMessageHeaderDecoderLowLevel(headerBytes)
 	if err != nil {
@@ -192,7 +200,9 @@ func readHttpMessageLowLevel(logger *slog.Logger, reader io.Reader) (HttpMessage
 
 		}
 
-		httpMessage.Payload = buf[beginPayloadIdx:endPayloadIdx]
+		// allocate new slice for payload to give dealloate buffer
+		httpMessage.Payload = make([]byte, header.ContentLen)
+		copy(httpMessage.Payload, buf[beginPayloadIdx:endPayloadIdx])
 	}
 
 	return httpMessage, nil
