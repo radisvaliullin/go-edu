@@ -50,6 +50,9 @@ func main() {
 * Using `net/http`. [httpserver v2](./internal/httpserverv2/)
 * Using popular third party lib.
 
+## Other examples of Go code:
+* Simple revers tcp proxy with support mTLS Auth and balancing. [Simple TCP Proxy](https://github.com/radisvaliullin/proxy)
+
 ## Run example code
 ```
 go run cmd/httpserver/main.go
